@@ -294,17 +294,22 @@ function UploadForm({ venue, onUpload, onBack }) {
   const fileRef = useRef(null);
 
   function convertToJpeg(file) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0);
-        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
-        URL.revokeObjectURL(img.src);
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob(
+            (blob) => { URL.revokeObjectURL(img.src); blob ? resolve(blob) : reject(new Error("toBlob failed")); },
+            "image/jpeg", 0.85
+          );
+        } catch (e) { reject(e); }
       };
+      img.onerror = () => reject(new Error("Image load failed"));
       img.src = URL.createObjectURL(file);
     });
   }
@@ -320,13 +325,22 @@ function UploadForm({ venue, onUpload, onBack }) {
     setError(null);
 
     try {
-      // Convert to JPEG to handle HEIF/HEIC and ensure browser compatibility
-      const uploadBlob = await convertToJpeg(selectedFile);
-      const fileName = `${venue}/${Date.now()}.jpg`;
+      // Try converting to JPEG, fall back to original file if conversion fails
+      let uploadBlob, fileName, contentType;
+      try {
+        uploadBlob = await convertToJpeg(selectedFile);
+        fileName = `${venue}/${Date.now()}.jpg`;
+        contentType = "image/jpeg";
+      } catch {
+        uploadBlob = selectedFile;
+        const ext = selectedFile.name.split(".").pop() || "jpg";
+        fileName = `${venue}/${Date.now()}.${ext}`;
+        contentType = selectedFile.type || "image/jpeg";
+      }
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("tipsheets")
-        .upload(fileName, uploadBlob, { contentType: "image/jpeg" });
+        .upload(fileName, uploadBlob, { contentType });
 
       if (uploadError) throw uploadError;
 
@@ -354,7 +368,7 @@ function UploadForm({ venue, onUpload, onBack }) {
       setTimeout(() => onBack(), 1400);
     } catch (err) {
       console.error("Upload failed:", err);
-      setError("Upload failed. Try again.");
+      setError(err.message || "Upload failed. Try again.");
       setUploading(false);
     }
   }
