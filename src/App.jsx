@@ -293,6 +293,22 @@ function UploadForm({ venue, onUpload, onBack }) {
   const [error, setError] = useState(null);
   const fileRef = useRef(null);
 
+  function convertToJpeg(file) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
+        URL.revokeObjectURL(img.src);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
   function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) { setSelectedFile(file); setPreviewUrl(URL.createObjectURL(file)); }
@@ -304,13 +320,13 @@ function UploadForm({ venue, onUpload, onBack }) {
     setError(null);
 
     try {
-      // Upload image to Supabase Storage
-      const fileExt = selectedFile.name.split(".").pop() || "jpg";
-      const fileName = `${venue}/${Date.now()}.${fileExt}`;
+      // Convert to JPEG to handle HEIF/HEIC and ensure browser compatibility
+      const uploadBlob = await convertToJpeg(selectedFile);
+      const fileName = `${venue}/${Date.now()}.jpg`;
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("tipsheets")
-        .upload(fileName, selectedFile, { contentType: selectedFile.type });
+        .upload(fileName, uploadBlob, { contentType: "image/jpeg" });
 
       if (uploadError) throw uploadError;
 
